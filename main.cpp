@@ -4,6 +4,7 @@
 
 #include "util/DBManager.h"
 #include "util/ConsoleUtil.h"
+#include "util/DateTimeUtil.h"
 #include "util/DummyDataGenerator.h"
 #include "repository/SampleRepository.h"
 #include "repository/OrderRepository.h"
@@ -41,6 +42,20 @@ int main() {
 
     bool running = true;
     while (running) {
+        // Auto-complete: if the FIFO head job's production time has elapsed, complete it.
+        {
+            auto head = prodQueueRepo.peek();
+            if (head) {
+                double elapsed = DateTimeUtil::elapsedMinutesSince(head->getEnqueuedAt());
+                if (elapsed >= head->getTotalProductionTime()) {
+                    std::string oid = head->getOrderId();
+                    int qty         = head->getActualProductionQty();
+                    prodQueueRepo.remove(std::to_string(head->getQueueId()));
+                    releaseCtrl.completeProduction(oid, qty);
+                }
+            }
+        }
+
         ConsoleUtil::clearScreen();
 
         auto samples = sampleCtrl.listSamples();
@@ -138,32 +153,9 @@ int main() {
             break;
         }
 
-        case 5: { // Production queue
+        case 5: { // Production queue - view only
             auto jobs = prodQueueRepo.findAll();
             productionView.showQueue(jobs);
-            if (!jobs.empty()) {
-                std::string oid = productionView.selectOrderId();
-                if (!oid.empty()) {
-                    try {
-                        auto jobOpt = orderRepo.findById(oid);
-                        if (jobOpt) {
-                            auto queueJobs = prodQueueRepo.findAll();
-                            int producedQty = 0;
-                            for (const auto& j : queueJobs) {
-                                if (j.getOrderId() == oid) {
-                                    producedQty = j.getActualProductionQty();
-                                    prodQueueRepo.remove(std::to_string(j.getQueueId()));
-                                    break;
-                                }
-                            }
-                            releaseCtrl.completeProduction(oid, producedQty);
-                            productionView.showCompleted(oid);
-                        }
-                    } catch (const std::exception& e) {
-                        std::cout << "[Error] " << e.what() << "\n";
-                    }
-                }
-            }
             ConsoleUtil::pressEnterToContinue();
             break;
         }
