@@ -24,3 +24,6 @@ data/*.db
 # OS
 Thumbs.db
 .DS_Store
+
+# Documents
+*.pdf
