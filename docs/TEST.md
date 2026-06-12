@@ -1,9 +1,22 @@
-# TEST.md - 테스트 계획
+# TEST.md — 테스트 계획 및 현황
 
-**프로젝트**: 반도체 시료 생산주문관리 시스템  
-**작성일**: 2026-06-12  
-**프레임워크**: Google Test (gtest)  
-**원칙**: TDD - 구현 전 테스트 먼저 작성 (Red → Green → Refactor)
+**프로젝트**: 반도체 시료 생산주문관리 시스템 (S-Semi SampleOrderSystem)  
+**최종 수정**: 2026-06-12  
+**프레임워크**: Google Test (gtest v1.14.0)  
+**원칙**: TDD — Red → Green → Refactor
+
+---
+
+## 현재 테스트 현황
+
+| 테스트 스위트 | 파일 | 테스트 수 | 상태 |
+|---|---|---|---|
+| UtilLayer | test_db_manager, test_datetime_util, test_id_generator, test_console_util, test_dummy_data_generator | 23 | PASS |
+| ModelLayer | test_sample, test_order, test_production_job | 15 | PASS |
+| RepositoryLayer | test_sample_repository, test_order_repository, test_production_queue_repository | 21 | PASS |
+| ControllerLayer | test_order_controller, test_production_controller | 9 | PASS |
+| **합계** | **14개 파일** | **72** | **전체 PASS** |
+| IntegrationTests | *(미구현 → 이 문서에서 계획)* | — | 계획 중 |
 
 ---
 
@@ -12,448 +25,639 @@
 ```
 tests/
 ├── util/
-│   ├── test_DBManager.cpp
-│   ├── test_DateTimeUtil.cpp
-│   └── test_IdGenerator.cpp
+│   ├── test_dummy.cpp                      # 플레이스홀더
+│   ├── test_db_manager.cpp                 # DBManager CRUD + resetAllData
+│   ├── test_datetime_util.cpp              # ISO8601 포맷 검증
+│   ├── test_id_generator.cpp               # ID 형식 및 패딩 검증
+│   ├── test_console_util.cpp               # readValidInt 범위 검증
+│   └── test_dummy_data_generator.cpp       # 더미 데이터 삽입 검증
 ├── model/
-│   ├── test_Sample.cpp
-│   ├── test_Order.cpp
-│   └── test_ProductionJob.cpp
+│   ├── test_sample.cpp                     # hasEnoughStock, getShortfall, getStockStatus
+│   ├── test_order.cpp                      # OrderStatus 전이
+│   └── test_production_job.cpp             # 값 객체 getter
 ├── repository/
-│   ├── test_SampleRepository.cpp
-│   ├── test_OrderRepository.cpp
-│   └── test_ProductionQueueRepository.cpp
-└── controller/
-    ├── test_SampleController.cpp
-    ├── test_OrderController.cpp
-    ├── test_ProductionController.cpp
-    └── test_ReleaseController.cpp
-```
-
-> View 레이어는 콘솔 I/O 특성상 단위 테스트 제외 → 수동 테스트로 검증
-
----
-
-## 1. Util Layer 테스트
-
-### 1-1. DBManager (`test_DBManager.cpp`)
-
-**검증 목표**: DB 연결, 테이블 초기화, 데이터 영속성
-
-| 테스트명 | 검증 내용 | 방법 |
-|---|---|---|
-| `Initialize_CreatesDBFile` | initialize() 호출 시 DB 파일 생성 | 파일 존재 여부 확인 |
-| `Initialize_CreatesDataDirectory` | data/ 폴더 없어도 자동 생성 | 폴더 삭제 후 재실행 |
-| `Initialize_CreatesTables` | 3개 테이블 생성 확인 | sqlite_master 조회 |
-| `Initialize_ExistingDB_PreservesData` | 재실행 시 기존 데이터 유지 | 데이터 삽입 후 재연결 |
-| `GetConnection_ReturnsValidPointer` | 연결 후 커넥션 포인터 유효 | nullptr 여부 확인 |
-| `Close_DisconnectsDB` | close() 후 isConnected() false | 상태 확인 |
-
-```cpp
-TEST(DBManagerTest, Initialize_CreatesDataDirectory) {
-    std::filesystem::remove_all("data");
-    EXPECT_FALSE(std::filesystem::exists("data"));
-    DBManager::getInstance().initialize("data/test.db");
-    EXPECT_TRUE(std::filesystem::exists("data"));
-}
+│   ├── test_sample_repository.cpp          # SQLite CRUD
+│   ├── test_order_repository.cpp           # 상태별 조회, 카운트
+│   └── test_production_queue_repository.cpp # FIFO enqueue/dequeue
+├── controller/
+│   ├── test_order_controller.cpp           # 승인/거절/재고 분기
+│   └── test_production_controller.cpp      # 생산량 공식 검증
+└── integration/                            # ← 신규 추가 예정
+    ├── test_it_stock_sufficient_flow.cpp   # IT-01
+    ├── test_it_production_flow.cpp         # IT-02
+    ├── test_it_reject_flow.cpp             # IT-03
+    ├── test_it_multi_order_flow.cpp        # IT-04
+    └── test_it_fifo_production.cpp         # IT-05
 ```
 
 ---
 
-### 1-2. DateTimeUtil (`test_DateTimeUtil.cpp`)
+## 단위 테스트 vs 통합 테스트 구분
 
-**검증 목표**: 날짜/시간 포맷 정확성
+```
+단위 테스트 (현재 구현됨)
+  → 각 레이어를 독립적으로 검증
+  → OrderController 만 테스트 → approveOrder() 자체는 맞음
+  → ReleaseController 만 테스트 → releaseOrder() 자체는 맞음
+  → 두 Controller가 함께 동작할 때의 재고 흐름은 검증 불가 ❌
 
-| 테스트명 | 검증 내용 | 방법 |
-|---|---|---|
-| `Now_ReturnsISO8601Format` | 반환값이 ISO 8601 형식인지 | 정규식 매칭 |
-| `Today_Returns8DigitString` | 반환값이 YYYYMMDD 형식인지 | 길이 및 숫자 확인 |
-
-```cpp
-TEST(DateTimeUtilTest, Now_ReturnsISO8601Format) {
-    std::string result = DateTimeUtil::now();
-    // 형식: 2026-06-12T09:32:15
-    EXPECT_EQ(result.size(), 19);
-    EXPECT_EQ(result[4], '-');
-    EXPECT_EQ(result[10], 'T');
-}
+통합 테스트 (이 문서에서 계획)
+  → Controller + Repository + Model 전 레이어를 실제 DB로 연결
+  → 실제 주문 흐름(접수→승인→출고) 전체를 하나의 테스트로 검증
+  → 레이어 경계를 넘나드는 버그(재고 이중 차감 등)를 잡을 수 있음 ✅
 ```
 
+> **실증 사례**: 이번 개발 중 `approveOrder()`와 `releaseOrder()`가 각각 재고를 차감하는
+> 이중 차감 버그가 존재했다. 단위 테스트는 이를 잡지 못했고, 코드 리뷰에서 발견됐다.
+> 통합 테스트 IT-01이 있었다면 즉시 발견할 수 있었던 버그다.
+
 ---
 
-### 1-3. IdGenerator (`test_IdGenerator.cpp`)
+## 통합 테스트 공통 설정
 
-**검증 목표**: ID 생성 형식 및 시퀀스 정확성
-
-| 테스트명 | 검증 내용 | 방법 |
-|---|---|---|
-| `GenerateOrderId_Format` | ORD-YYYYMMDD-NNNN 형식 | 문자열 파싱 |
-| `GenerateOrderId_SequencePadding` | 시퀀스 4자리 0패딩 | sequence=1 → "0001" |
-| `GenerateSampleId_Format` | S-NNN 형식 | 문자열 파싱 |
-| `GenerateSampleId_SequencePadding` | 3자리 0패딩 | sequence=3 → "S-003" |
+모든 통합 테스트는 다음 Fixture를 공유한다.
 
 ```cpp
-TEST(IdGeneratorTest, GenerateOrderId_SequencePadding) {
-    std::string id = IdGenerator::generateOrderId(1);
-    // ORD-20260612-0001 형식 검증
-    EXPECT_EQ(id.substr(0, 4), "ORD-");
-    EXPECT_EQ(id.substr(13), "0001");
-}
-```
-
----
-
-## 2. Model Layer 테스트
-
-### 2-1. Sample (`test_Sample.cpp`)
-
-**검증 목표**: 비즈니스 로직 메서드의 정확한 동작
-
-| 테스트명 | 검증 내용 | 입력 | 기대값 |
-|---|---|---|---|
-| `HasEnoughStock_True_WhenStockSufficient` | 재고 >= 주문수량 | stock=100, qty=50 | true |
-| `HasEnoughStock_True_WhenStockEqual` | 재고 == 주문수량 | stock=50, qty=50 | true |
-| `HasEnoughStock_False_WhenStockInsufficient` | 재고 < 주문수량 | stock=30, qty=50 | false |
-| `GetShortfall_ReturnsCorrectValue` | 부족분 계산 | stock=30, qty=200 | 170 |
-| `GetShortfall_ReturnsZero_WhenSufficient` | 재고 충분 시 0 반환 | stock=200, qty=50 | 0 |
-| `GetStockStatus_Depleted_WhenZero` | 재고 0 → DEPLETED | stock=0 | DEPLETED |
-| `GetStockStatus_Shortage_WhenInsufficient` | 재고 부족 → SHORTAGE | stock=10, pending=50 | SHORTAGE |
-| `GetStockStatus_Sufficient_WhenEnough` | 재고 충분 → SUFFICIENT | stock=100, pending=50 | SUFFICIENT |
-
-```cpp
-TEST(SampleTest, GetShortfall_ReturnsZero_WhenSufficient) {
-    Sample s("S-001", "테스트시료", 0.5, 0.92, 200);
-    EXPECT_EQ(s.getShortfall(50), 0);  // 재고가 충분하면 0
-}
-
-TEST(SampleTest, GetStockStatus_Depleted_WhenZero) {
-    Sample s("S-001", "테스트시료", 0.5, 0.92, 0);
-    EXPECT_EQ(s.getStockStatus(0), StockStatus::DEPLETED);
-}
-```
-
----
-
-### 2-2. Order (`test_Order.cpp`)
-
-**검증 목표**: 상태 확인 메서드 및 상태 전이 정확성
-
-| 테스트명 | 검증 내용 | 입력 | 기대값 |
-|---|---|---|---|
-| `IsReserved_True_WhenStatusReserved` | RESERVED 상태 확인 | status=RESERVED | true |
-| `IsConfirmed_False_WhenStatusReserved` | RESERVED에서 isConfirmed() | status=RESERVED | false |
-| `SetStatus_ChangesStatus` | setStatus로 상태 변경 | RESERVED→CONFIRMED | CONFIRMED |
-| `StatusToString_ReturnsCorrectString` | enum → string 변환 | PRODUCING | "PRODUCING" |
-
-```cpp
-TEST(OrderTest, SetStatus_ChangesStatus) {
-    Order o("ORD-001", "S-001", "테스트고객", 100, OrderStatus::RESERVED, "2026-06-12T09:00:00");
-    o.setStatus(OrderStatus::CONFIRMED);
-    EXPECT_TRUE(o.isConfirmed());
-    EXPECT_FALSE(o.isReserved());
-}
-```
-
----
-
-### 2-3. ProductionJob (`test_ProductionJob.cpp`)
-
-**검증 목표**: 생성자 및 getter 정확성
-
-| 테스트명 | 검증 내용 | 입력 | 기대값 |
-|---|---|---|---|
-| `Constructor_SetsFieldsCorrectly` | 생성자 필드 설정 | 각 필드값 | 동일한 값 반환 |
-| `GetActualProductionQty_ReturnsCorrectValue` | 실 생산량 getter | qty=206 | 206 |
-
----
-
-## 3. Repository Layer 테스트
-
-> 모든 Repository 테스트는 **인메모리 SQLite DB** (`:memory:`) 사용  
-> 각 테스트 전 `setUp`에서 테이블 초기화, 후 `tearDown`에서 정리
-
-### 3-1. SampleRepository (`test_SampleRepository.cpp`)
-
-**검증 목표**: SQLite CRUD 및 추가 조회 메서드
-
-| 테스트명 | 검증 내용 | 방법 |
-|---|---|---|
-| `Save_InsertsNewSample` | 새 시료 저장 | save 후 findById 확인 |
-| `Save_ReturnsFalse_OnDuplicateId` | 중복 ID 저장 시 false | 동일 ID 2회 save |
-| `FindById_ReturnsCorrectSample` | ID로 단건 조회 | save 후 findById |
-| `FindById_ReturnsNullopt_WhenNotFound` | 없는 ID 조회 | 빈 DB에서 findById |
-| `FindAll_ReturnsAllSamples` | 전체 목록 조회 | 3개 저장 후 findAll |
-| `Update_UpdatesFields` | 필드 업데이트 | save → update → findById |
-| `UpdateStock_UpdatesOnlyStock` | 재고만 업데이트 | updateStock 후 확인 |
-| `FindByName_ReturnsMatchingResults` | 이름 부분 검색 | keyword="웨이퍼" |
-| `ExistsById_ReturnsTrue_WhenExists` | ID 존재 여부 | save 후 existsById |
-| `Remove_DeletesSample` | 시료 삭제 | save → remove → findById |
-
-```cpp
-class SampleRepositoryTest : public ::testing::Test {
+class IntegrationTestBase : public ::testing::Test {
 protected:
     void SetUp() override {
-        sqlite3_open(":memory:", &db);
-        // 테이블 생성
-        dbManager = std::make_unique<DBManager>(db);
-        repo = std::make_unique<SampleRepository>(*dbManager);
+        DBManager::getInstance().initialize(":memory:");
+        sqlite3* db = DBManager::getInstance().getDB();
+
+        sampleRepo   = std::make_unique<SampleRepository>(db);
+        orderRepo    = std::make_unique<OrderRepository>(db);
+        prodQueueRepo = std::make_unique<ProductionQueueRepository>(db);
+
+        sampleCtrl  = std::make_unique<SampleController>(sampleRepo.get());
+        orderCtrl   = std::make_unique<OrderController>(
+                          sampleRepo.get(), orderRepo.get(), prodQueueRepo.get());
+        releaseCtrl = std::make_unique<ReleaseController>(
+                          orderRepo.get(), sampleRepo.get(), prodQueueRepo.get());
     }
-    void TearDown() override { sqlite3_close(db); }
+    void TearDown() override {
+        releaseCtrl.reset(); orderCtrl.reset(); sampleCtrl.reset();
+        sampleRepo.reset(); orderRepo.reset(); prodQueueRepo.reset();
+        DBManager::getInstance().close();
+    }
 
-    sqlite3* db;
-    std::unique_ptr<DBManager> dbManager;
-    std::unique_ptr<SampleRepository> repo;
+    // 편의 메서드: 시료 등록 후 ID 반환
+    std::string registerSample(const std::string& name,
+                                double avgTime, double yieldRate, int stock) {
+        return sampleCtrl->registerSample(name, avgTime, yieldRate, stock);
+    }
+
+    std::unique_ptr<SampleRepository>         sampleRepo;
+    std::unique_ptr<OrderRepository>          orderRepo;
+    std::unique_ptr<ProductionQueueRepository> prodQueueRepo;
+    std::unique_ptr<SampleController>         sampleCtrl;
+    std::unique_ptr<OrderController>          orderCtrl;
+    std::unique_ptr<ReleaseController>        releaseCtrl;
 };
-
-TEST_F(SampleRepositoryTest, FindById_ReturnsNullopt_WhenNotFound) {
-    auto result = repo->findById("S-999");
-    EXPECT_FALSE(result.has_value());
-}
 ```
 
 ---
 
-### 3-2. OrderRepository (`test_OrderRepository.cpp`)
+## IT-01: 재고 충분 완전 흐름
 
-| 테스트명 | 검증 내용 | 방법 |
-|---|---|---|
-| `Save_InsertsNewOrder` | 새 주문 저장 | save 후 findById 확인 |
-| `FindByStatus_ReturnsCorrectOrders` | 상태별 조회 | RESERVED 2개 저장 후 조회 |
-| `UpdateStatus_ChangesOnlyStatus` | 상태만 변경 | updateStatus 후 확인 |
-| `CountByStatus_ReturnsCorrectCount` | 상태별 주문 수 | 3개 저장 후 count |
-| `FindByStatus_ExcludesOtherStatus` | 다른 상태 제외 | RESERVED 조회 시 CONFIRMED 미포함 |
-| `GenerateNextOrderSequence_Increments` | 시퀀스 증가 | 1→2→3 순서 확인 |
+**목적**: 가장 기본적인 흐름인 `RESERVED → CONFIRMED → RELEASED`에서
+재고가 **출고 시 단 1회만 차감**되는지 검증한다.
 
----
+**왜 중요한가**: `approveOrder()`와 `releaseOrder()`가 각각 재고를 건드릴 경우
+이중 차감 버그가 발생한다. 이 테스트가 단위 테스트로는 잡을 수 없는 그 버그를 잡는다.
 
-### 3-3. ProductionQueueRepository (`test_ProductionQueueRepository.cpp`)
+### 사용자 입력 시퀀스
 
-| 테스트명 | 검증 내용 | 방법 |
-|---|---|---|
-| `Enqueue_AddsJobToQueue` | 큐에 작업 추가 | enqueue 후 getQueue 확인 |
-| `Next_ReturnsFIFOOrder` | FIFO 순서 반환 | 3개 enqueue 후 next() 순서 |
-| `Next_ReturnsNullopt_WhenEmpty` | 빈 큐에서 next() | 빈 큐에서 호출 |
-| `RemoveByOrderId_RemovesJob` | 작업 제거 | enqueue → remove → getQueue |
-| `GetQueue_ReturnsAllWaitingJobs` | 전체 대기 목록 | 3개 enqueue 후 크기 확인 |
+```
+[메인 메뉴] 1 → 시료 관리
+  [시료 메뉴] 1 → 시료 등록
+    Name       : AlphaX
+    AvgTime    : 10.0
+    YieldRate  : 0.92
+    InitStock  : 200
+  → 등록 완료 (S-001)
+  [시료 메뉴] 0 → 뒤로
+
+[메인 메뉴] 2 → 시료 주문
+  SampleID     : S-001
+  CustomerName : CorpA
+  Quantity     : 100
+  Confirm? [Y] → Y
+  → 주문 접수 완료 (ORD-20260612-0001)
+
+[메인 메뉴] 3 → 주문 승인/거절
+  [목록 확인] ORD-20260612-0001 / S-001 / CorpA / 100
+  OrderID   : ORD-20260612-0001
+  Action    : 1 (승인)
+  → APPROVED (재고 충분 → CONFIRMED)
+
+[메인 메뉴] 4 → 모니터링
+  → CONFIRMED: 1, RESERVED: 0
+  → S-001 Stock: 200, Pending: 0 → Status: OK
+
+[메인 메뉴] 6 → 출고 처리
+  OrderID   : ORD-20260612-0001
+  → RELEASED
+
+[메인 메뉴] 4 → 모니터링 (최종 확인)
+  → RELEASED: 1
+  → S-001 Stock: 100 (200 - 100)
+```
+
+### 테스트 케이스
 
 ```cpp
-TEST_F(ProductionQueueRepositoryTest, Next_ReturnsFIFOOrder) {
-    repo->enqueue(ProductionJob(0, "ORD-001", 100, 50.0, "2026-06-12T09:00:00"));
-    repo->enqueue(ProductionJob(0, "ORD-002", 200, 100.0, "2026-06-12T09:01:00"));
+// IT-01-A: 승인 후 재고 불변 (차감은 출고 시)
+TEST_F(IntegrationTest_StockSufficientFlow, Approve_DoesNotDeductStock) {
+    std::string sid = registerSample("AlphaX", 10.0, 0.92, 200);
+    std::string oid = orderCtrl->placeOrder(sid, "CorpA", 100);
 
-    auto first = repo->next();
-    ASSERT_TRUE(first.has_value());
-    EXPECT_EQ(first->getOrderId(), "ORD-001");  // 먼저 들어온 것이 먼저 나옴
+    orderCtrl->approveOrder(oid);
+
+    auto sample = sampleRepo->findById(sid);
+    EXPECT_EQ(200, sample->getStock());  // 승인 후 재고 그대로
+    EXPECT_EQ(OrderStatus::CONFIRMED, orderRepo->findById(oid)->getStatus());
+}
+
+// IT-01-B: 출고 후 재고가 정확히 1회 차감됨
+TEST_F(IntegrationTest_StockSufficientFlow, Release_DeductsStockExactlyOnce) {
+    std::string sid = registerSample("AlphaX", 10.0, 0.92, 200);
+    std::string oid = orderCtrl->placeOrder(sid, "CorpA", 100);
+
+    orderCtrl->approveOrder(oid);
+    releaseCtrl->releaseOrder(oid);
+
+    auto sample = sampleRepo->findById(sid);
+    EXPECT_EQ(100, sample->getStock());  // 200 - 100 = 100
+    EXPECT_EQ(OrderStatus::RELEASED, orderRepo->findById(oid)->getStatus());
+}
+
+// IT-01-C: 전체 상태 전이 순서 검증
+TEST_F(IntegrationTest_StockSufficientFlow, FullFlow_StatusTransitions) {
+    std::string sid = registerSample("AlphaX", 10.0, 0.92, 200);
+    std::string oid = orderCtrl->placeOrder(sid, "CorpA", 100);
+    EXPECT_EQ(OrderStatus::RESERVED,  orderRepo->findById(oid)->getStatus());
+
+    orderCtrl->approveOrder(oid);
+    EXPECT_EQ(OrderStatus::CONFIRMED, orderRepo->findById(oid)->getStatus());
+
+    releaseCtrl->releaseOrder(oid);
+    EXPECT_EQ(OrderStatus::RELEASED,  orderRepo->findById(oid)->getStatus());
 }
 ```
 
+### 기대 결과
+
+| 시점 | 재고 | 주문 상태 |
+|---|---|---|
+| 시료 등록 후 | 200 | — |
+| 주문 접수 후 | 200 | RESERVED |
+| 승인 후 | 200 | CONFIRMED |
+| 출고 후 | 100 | RELEASED |
+
 ---
 
-## 4. Controller Layer 테스트
+## IT-02: 재고 부족 → 생산 → 출고 흐름
 
-> Controller 테스트는 **인메모리 SQLite DB** 기반 Repository를 실제 주입  
-> Mock 없이 실제 Repository를 사용하여 통합적 동작 검증
+**목적**: 재고 부족 시 `RESERVED → PRODUCING → CONFIRMED → RELEASED` 전체 경로를
+검증하고, 생산량 공식 `ceil(부족분 / (수율 × 0.9))`와 재고 증감이 정확한지 확인한다.
 
-### 4-1. SampleController (`test_SampleController.cpp`)
+### 사용자 입력 시퀀스
 
-| 테스트명 | 검증 내용 | 방법 |
-|---|---|---|
-| `RegisterSample_Success` | 정상 시료 등록 | 등록 후 조회 확인 |
-| `RegisterSample_Fail_DuplicateId` | 중복 ID 등록 실패 | 동일 ID 2회 등록 |
-| `RegisterSample_Fail_InvalidYieldRate` | 수율 범위 초과 | yieldRate=1.5 |
-| `RegisterSample_Fail_ZeroProductionTime` | 생산시간 0 이하 | avgTime=0 |
-| `SearchSamplesByName_ReturnsMatches` | 키워드 검색 | "웨이퍼" 검색 |
-| `DecreaseStock_Success` | 재고 차감 | stock=100, decrease=30 → 70 |
-| `DecreaseStock_Fail_InsufficientStock` | 재고 부족 시 실패 | stock=10, decrease=50 |
-| `IncreaseStock_Success` | 재고 증가 | stock=100, increase=50 → 150 |
+```
+[메인 메뉴] 1 → 시료 관리
+  [시료 메뉴] 1 → 시료 등록
+    Name       : GammaZ
+    AvgTime    : 8.0
+    YieldRate  : 0.92
+    InitStock  : 30
+  → 등록 완료 (S-001)
+
+[메인 메뉴] 2 → 시료 주문
+  SampleID     : S-001
+  CustomerName : CorpB
+  Quantity     : 200
+  Confirm? [Y] → Y
+  → 주문 접수 완료 (ORD-20260612-0001)
+
+[메인 메뉴] 3 → 주문 승인/거절
+  OrderID   : ORD-20260612-0001
+  Action    : 1 (승인)
+  → APPROVED (재고 부족 → PRODUCING, 생산 큐 등록)
+  → 부족분 = 200 - 30 = 170
+  → 실 생산량 = ceil(170 / (0.92 × 0.9)) = ceil(205.3) = 206
+
+[메인 메뉴] 5 → 생산라인 조회
+  [목록 확인] QueueID:1 / ORD-20260612-0001 / Qty:206 / Time:1648.0
+  OrderID   : ORD-20260612-0001
+  → 생산 완료 처리
+  → 재고: 30 + 206 = 236, 주문 상태: CONFIRMED
+
+[메인 메뉴] 6 → 출고 처리
+  OrderID   : ORD-20260612-0001
+  → RELEASED
+  → 재고: 236 - 200 = 36
+```
+
+### 테스트 케이스
 
 ```cpp
-TEST_F(SampleControllerTest, RegisterSample_Fail_InvalidYieldRate) {
-    bool result = controller->registerSample("S-001", "테스트", 0.5, 1.5, 100);
-    EXPECT_FALSE(result);  // 수율 1.0 초과 → 실패
+// IT-02-A: 재고 부족 시 PRODUCING + 생산 큐 등록
+TEST_F(IntegrationTest_ProductionFlow, Approve_InsufficientStock_BecomesProducing) {
+    std::string sid = registerSample("GammaZ", 8.0, 0.92, 30);
+    std::string oid = orderCtrl->placeOrder(sid, "CorpB", 200);
+
+    orderCtrl->approveOrder(oid);
+
+    EXPECT_EQ(OrderStatus::PRODUCING, orderRepo->findById(oid)->getStatus());
+    EXPECT_FALSE(prodQueueRepo->isEmpty());
+}
+
+// IT-02-B: 생산량 공식 검증 (부족분=170, 수율=0.92 → 206)
+TEST_F(IntegrationTest_ProductionFlow, ProductionQty_Formula_IsCorrect) {
+    std::string sid = registerSample("GammaZ", 8.0, 0.92, 30);
+    std::string oid = orderCtrl->placeOrder(sid, "CorpB", 200);
+    orderCtrl->approveOrder(oid);
+
+    auto job = prodQueueRepo->peek();
+    ASSERT_TRUE(job.has_value());
+    EXPECT_EQ(206, job->getActualProductionQty());  // ceil(170/(0.92*0.9))
+}
+
+// IT-02-C: 생산 완료 후 재고 증가 + CONFIRMED 전이
+TEST_F(IntegrationTest_ProductionFlow, CompleteProduction_IncreasesStockAndConfirms) {
+    std::string sid = registerSample("GammaZ", 8.0, 0.92, 30);
+    std::string oid = orderCtrl->placeOrder(sid, "CorpB", 200);
+    orderCtrl->approveOrder(oid);
+
+    auto job = prodQueueRepo->peek();
+    prodQueueRepo->remove(std::to_string(job->getQueueId()));
+    releaseCtrl->completeProduction(oid, job->getActualProductionQty());
+
+    EXPECT_EQ(236, sampleRepo->findById(sid)->getStock());  // 30 + 206
+    EXPECT_EQ(OrderStatus::CONFIRMED, orderRepo->findById(oid)->getStatus());
+}
+
+// IT-02-D: 출고 후 최종 재고 검증
+TEST_F(IntegrationTest_ProductionFlow, FullProductionFlow_FinalStockIsCorrect) {
+    std::string sid = registerSample("GammaZ", 8.0, 0.92, 30);
+    std::string oid = orderCtrl->placeOrder(sid, "CorpB", 200);
+    orderCtrl->approveOrder(oid);
+
+    auto job = prodQueueRepo->peek();
+    prodQueueRepo->remove(std::to_string(job->getQueueId()));
+    releaseCtrl->completeProduction(oid, job->getActualProductionQty());
+    releaseCtrl->releaseOrder(oid);
+
+    EXPECT_EQ(36, sampleRepo->findById(sid)->getStock());   // 236 - 200
+    EXPECT_EQ(OrderStatus::RELEASED, orderRepo->findById(oid)->getStatus());
 }
 ```
 
----
+### 기대 결과
 
-### 4-2. OrderController (`test_OrderController.cpp`)
-
-**가장 중요한 테스트 - 핵심 비즈니스 로직 검증**
-
-| 테스트명 | 검증 내용 | 방법 |
-|---|---|---|
-| `PlaceOrder_Success_CreatesReservedOrder` | 주문 접수 → RESERVED | 접수 후 상태 확인 |
-| `PlaceOrder_Fail_InvalidSampleId` | 없는 시료 ID로 주문 | nullopt 반환 |
-| `PlaceOrder_Fail_ZeroQuantity` | 수량 0으로 주문 | nullopt 반환 |
-| `ApproveOrder_Confirmed_WhenStockSufficient` | 재고 충분 → CONFIRMED | stock=200, qty=100 |
-| `ApproveOrder_Confirmed_DecreasesStock` | 승인 시 재고 차감 | stock=200, qty=100 → stock=100 |
-| `ApproveOrder_Producing_WhenStockInsufficient` | 재고 부족 → PRODUCING | stock=10, qty=100 |
-| `ApproveOrder_Producing_EnqueuesProductionJob` | 생산 큐 등록 확인 | 승인 후 큐 확인 |
-| `ApproveOrder_Fail_NotReservedStatus` | RESERVED 아닌 주문 승인 시도 | CONFIRMED 주문 승인 |
-| `RejectOrder_ChangesStatusToRejected` | 거절 → REJECTED | 거절 후 상태 확인 |
-| `RejectOrder_Fail_NotReservedStatus` | RESERVED 아닌 주문 거절 시도 | false 반환 |
-| `GetOrderCountByStatus_ReturnsCorrectCounts` | 상태별 주문 수 집계 | 각 상태별 등록 후 확인 |
-
-```cpp
-TEST_F(OrderControllerTest, ApproveOrder_Confirmed_WhenStockSufficient) {
-    // 시료 등록 (재고 200)
-    sampleCtrl->registerSample("S-001", "테스트시료", 0.5, 0.92, 200);
-    // 주문 접수 (수량 100)
-    auto order = orderCtrl->placeOrder("S-001", "테스트고객", 100);
-    ASSERT_TRUE(order.has_value());
-
-    bool result = orderCtrl->approveOrder(order->getOrderId());
-
-    EXPECT_TRUE(result);
-    auto updated = orderCtrl->getOrderById(order->getOrderId());
-    EXPECT_EQ(updated->getStatus(), OrderStatus::CONFIRMED);
-
-    // 재고 차감 확인
-    auto sample = sampleCtrl->getSampleById("S-001");
-    EXPECT_EQ(sample->getStock(), 100);  // 200 - 100
-}
-
-TEST_F(OrderControllerTest, ApproveOrder_Producing_WhenStockInsufficient) {
-    sampleCtrl->registerSample("S-001", "테스트시료", 0.5, 0.92, 10);
-    auto order = orderCtrl->placeOrder("S-001", "테스트고객", 100);
-
-    orderCtrl->approveOrder(order->getOrderId());
-
-    auto updated = orderCtrl->getOrderById(order->getOrderId());
-    EXPECT_EQ(updated->getStatus(), OrderStatus::PRODUCING);
-}
-```
-
----
-
-### 4-3. ProductionController (`test_ProductionController.cpp`)
-
-**생산량 계산 공식 검증이 핵심**
-
-| 테스트명 | 검증 내용 | 입력 | 기대값 |
+| 시점 | 재고 | 주문 상태 | 생산 큐 |
 |---|---|---|---|
-| `CalcActualProductionQty_BasicCase` | 기본 생산량 계산 | shortfall=170, yield=0.92 | 206 |
-| `CalcActualProductionQty_CeilApplied` | ceil 적용 확인 | shortfall=1, yield=0.92 | 2 |
-| `CalcActualProductionQty_ExactDivision` | 나누어 떨어지는 경우 | shortfall=83, yield=1.0 | 93 |
-| `CalcTotalProductionTime_IsCorrect` | 총 생산시간 계산 | avgTime=0.8, qty=206 | 164.8 |
-| `CompleteCurrentJob_UpdatesStockAndStatus` | 생산 완료 → 재고 증가 + CONFIRMED | 생산 완료 처리 후 확인 |
-| `CompleteCurrentJob_RemovesJobFromQueue` | 완료 후 큐에서 제거 | 완료 후 큐 크기 확인 |
-| `CompleteCurrentJob_Fail_WhenQueueEmpty` | 빈 큐에서 완료 시도 | false 반환 |
-| `GetCurrentJob_ReturnsFirstInQueue` | 현재 작업 = 큐 맨 앞 | FIFO 순서 확인 |
-| `GetWaitingJobs_ExcludesCurrentJob` | 대기 목록에 현재 작업 미포함 | 3개 중 2개 반환 |
+| 시료 등록 후 | 30 | — | 비어있음 |
+| 주문 접수 후 | 30 | RESERVED | 비어있음 |
+| 승인 후 | 30 | PRODUCING | 1건 (qty=206) |
+| 생산 완료 후 | 236 | CONFIRMED | 비어있음 |
+| 출고 후 | 36 | RELEASED | 비어있음 |
+
+---
+
+## IT-03: 주문 거절 흐름
+
+**목적**: 거절 시 재고에 변화가 없고 모니터링 집계에서 제외되는지 검증한다.
+
+### 사용자 입력 시퀀스
+
+```
+[메인 메뉴] 1 → 시료 관리 → 시료 등록
+  Name: BetaY / AvgTime: 15.0 / Yield: 0.90 / Stock: 100
+
+[메인 메뉴] 2 → 시료 주문
+  SampleID: S-001 / Customer: CorpC / Qty: 50 / Y
+
+[메인 메뉴] 3 → 주문 승인/거절
+  OrderID : ORD-20260612-0001
+  Action  : 2 (거절)
+  → REJECTED
+
+[메인 메뉴] 4 → 모니터링
+  → REJECTED 건수: 표시 안됨
+  → S-001 Stock: 100 (변화 없음)
+```
+
+### 테스트 케이스
 
 ```cpp
-TEST(ProductionControllerTest, CalcActualProductionQty_BasicCase) {
-    // ceil(170 / (0.92 * 0.9)) = ceil(205.3) = 206
-    int result = ProductionController::calcActualProductionQty(170, 0.92);
-    EXPECT_EQ(result, 206);
+// IT-03-A: 거절 후 재고 불변
+TEST_F(IntegrationTest_RejectFlow, Reject_DoesNotChangeStock) {
+    std::string sid = registerSample("BetaY", 15.0, 0.90, 100);
+    std::string oid = orderCtrl->placeOrder(sid, "CorpC", 50);
+
+    orderCtrl->rejectOrder(oid);
+
+    EXPECT_EQ(100, sampleRepo->findById(sid)->getStock());
+    EXPECT_EQ(OrderStatus::REJECTED, orderRepo->findById(oid)->getStatus());
 }
 
-TEST(ProductionControllerTest, CalcActualProductionQty_CeilApplied) {
-    // ceil(1 / (0.92 * 0.9)) = ceil(1.207) = 2
-    int result = ProductionController::calcActualProductionQty(1, 0.92);
-    EXPECT_EQ(result, 2);
+// IT-03-B: 거절 주문은 생산 큐에 등록되지 않음
+TEST_F(IntegrationTest_RejectFlow, Reject_DoesNotEnqueueProductionJob) {
+    std::string sid = registerSample("BetaY", 15.0, 0.90, 10);  // 재고 부족
+    std::string oid = orderCtrl->placeOrder(sid, "CorpC", 100);
+
+    orderCtrl->rejectOrder(oid);
+
+    EXPECT_TRUE(prodQueueRepo->isEmpty());
 }
 
-TEST_F(ProductionControllerTest, CompleteCurrentJob_UpdatesStockAndStatus) {
-    // 재고 10, 주문 100 → PRODUCING 상태로 만든 후
-    orderCtrl->approveOrder(orderId);
+// IT-03-C: 거절된 주문은 CONFIRMED 목록에 미포함
+TEST_F(IntegrationTest_RejectFlow, Reject_NotInConfirmedList) {
+    std::string sid = registerSample("BetaY", 15.0, 0.90, 100);
+    std::string oid = orderCtrl->placeOrder(sid, "CorpC", 50);
 
-    productionCtrl->completeCurrentJob();
+    orderCtrl->rejectOrder(oid);
 
-    auto sample = sampleCtrl->getSampleById("S-001");
-    EXPECT_GT(sample->getStock(), 10);  // 재고 증가 확인
-
-    auto order = orderCtrl->getOrderById(orderId);
-    EXPECT_EQ(order->getStatus(), OrderStatus::CONFIRMED);
+    auto confirmed = orderRepo->findByStatus(OrderStatus::CONFIRMED);
+    EXPECT_TRUE(confirmed.empty());
 }
 ```
 
 ---
 
-### 4-4. ReleaseController (`test_ReleaseController.cpp`)
+## IT-04: 동일 시료 복수 주문 순차 처리
 
-| 테스트명 | 검증 내용 | 방법 |
-|---|---|---|
-| `ReleaseOrder_Success_ChangesToReleased` | CONFIRMED → RELEASED | 출고 후 상태 확인 |
-| `ReleaseOrder_Fail_NotConfirmedStatus` | CONFIRMED 아닌 주문 출고 | RESERVED 상태 주문 출고 시도 |
-| `ReleaseOrder_Fail_InvalidOrderId` | 없는 주문번호 | false 반환 |
-| `GetConfirmedOrders_ReturnsOnlyConfirmed` | CONFIRMED만 반환 | 여러 상태 중 CONFIRMED만 |
+**목적**: 같은 시료에 여러 주문이 들어올 때 각 출고 후 재고가 누적 차감되어
+정확히 계산되는지 검증한다.
+
+### 사용자 입력 시퀀스
+
+```
+[시료 등록] S-001 / AlphaX / Stock: 300
+
+[주문 1 접수] S-001 / CorpA / Qty: 80
+[주문 2 접수] S-001 / CorpB / Qty: 120
+
+[주문 1 승인] → CONFIRMED (재고 300 → 변화 없음)
+[주문 2 승인] → CONFIRMED (재고 여전히 300)
+
+[주문 1 출고] → RELEASED, Stock: 300 - 80 = 220
+[주문 2 출고] → RELEASED, Stock: 220 - 120 = 100
+```
+
+### 테스트 케이스
 
 ```cpp
-TEST_F(ReleaseControllerTest, ReleaseOrder_Fail_NotConfirmedStatus) {
-    // RESERVED 상태 주문 출고 시도
-    bool result = releaseCtrl->releaseOrder(reservedOrderId);
-    EXPECT_FALSE(result);  // CONFIRMED 아니므로 실패
+// IT-04-A: 복수 승인 후 재고 불변
+TEST_F(IntegrationTest_MultiOrderFlow, MultipleApprovals_StockUnchanged) {
+    std::string sid = registerSample("AlphaX", 10.0, 0.92, 300);
+    std::string oid1 = orderCtrl->placeOrder(sid, "CorpA", 80);
+    std::string oid2 = orderCtrl->placeOrder(sid, "CorpB", 120);
+
+    orderCtrl->approveOrder(oid1);
+    orderCtrl->approveOrder(oid2);
+
+    EXPECT_EQ(300, sampleRepo->findById(sid)->getStock());
+}
+
+// IT-04-B: 순차 출고 후 재고 누적 차감
+TEST_F(IntegrationTest_MultiOrderFlow, SequentialRelease_CumulativeStockDeduction) {
+    std::string sid = registerSample("AlphaX", 10.0, 0.92, 300);
+    std::string oid1 = orderCtrl->placeOrder(sid, "CorpA", 80);
+    std::string oid2 = orderCtrl->placeOrder(sid, "CorpB", 120);
+    orderCtrl->approveOrder(oid1);
+    orderCtrl->approveOrder(oid2);
+
+    releaseCtrl->releaseOrder(oid1);
+    EXPECT_EQ(220, sampleRepo->findById(sid)->getStock());  // 300-80
+
+    releaseCtrl->releaseOrder(oid2);
+    EXPECT_EQ(100, sampleRepo->findById(sid)->getStock());  // 220-120
 }
 ```
 
 ---
 
-## 5. 수동 테스트 시나리오 (View 포함 통합)
+## IT-05: FIFO 생산 큐 순서 검증
 
-View 레이어는 콘솔 I/O 특성상 수동으로 검증
+**목적**: 재고 부족 주문이 복수일 때 생산 큐가 FIFO 순서로 처리되는지 검증한다.
 
-### 시나리오 1 - 재고 충분 주문 처리
-```
-1. 시료 등록: S-001, 실리콘 웨이퍼, 0.5 min/ea, 수율 0.92, 재고 200
-2. 주문 접수: S-001, SK하이닉스, 수량 100
-3. 주문 승인 → 재고 충분 → 상태 CONFIRMED 확인
-4. 출고 처리 → 상태 RELEASED 확인
-5. 프로그램 종료 후 재실행 → 데이터 유지 확인
-```
+### 사용자 입력 시퀀스
 
-### 시나리오 2 - 재고 부족 → 생산 후 출고
 ```
-1. 시료 등록: S-002, SiC 파워기판, 0.8 min/ea, 수율 0.92, 재고 30
-2. 주문 접수: S-002, 삼성전자, 수량 200
-3. 주문 승인 → 재고 부족 → 생산 큐 등록, 상태 PRODUCING 확인
-4. 생산라인 조회 → 큐 대기 확인
-5. 생산 완료 처리 → 재고 증가, 상태 CONFIRMED 확인
-6. 출고 처리 → 상태 RELEASED 확인
+[시료 등록] S-001 / DeltaW / Stock: 0 (재고 없음)
+
+[주문 1 접수] S-001 / CorpD / Qty: 50  → 승인 → PRODUCING (큐 등록 #1)
+[주문 2 접수] S-001 / CorpE / Qty: 80  → 승인 → PRODUCING (큐 등록 #2)
+
+[생산 라인]
+  큐 목록: [#1 ORD-001, #2 ORD-002]
+  먼저 처리: ORD-001 (선입선출)
+  → ORD-001 CONFIRMED, ORD-002 여전히 PRODUCING
 ```
 
-### 시나리오 3 - 주문 거절
-```
-1. 주문 접수 후 → 주문 거절
-2. 상태 REJECTED 확인
-3. 모니터링 → REJECTED 주문 미표시 확인
+### 테스트 케이스
+
+```cpp
+// IT-05-A: 먼저 들어온 주문이 큐 앞에 위치
+TEST_F(IntegrationTest_FifoProduction, FIFO_FirstEnqueuedIsFirstInQueue) {
+    std::string sid = registerSample("DeltaW", 12.0, 0.90, 0);
+    std::string oid1 = orderCtrl->placeOrder(sid, "CorpD", 50);
+    std::string oid2 = orderCtrl->placeOrder(sid, "CorpE", 80);
+
+    orderCtrl->approveOrder(oid1);
+    orderCtrl->approveOrder(oid2);
+
+    auto firstJob = prodQueueRepo->peek();
+    ASSERT_TRUE(firstJob.has_value());
+    EXPECT_EQ(oid1, firstJob->getOrderId());  // oid1이 먼저 들어왔으므로 먼저 나옴
+}
+
+// IT-05-B: 첫 번째 생산 완료 후 두 번째는 여전히 PRODUCING
+TEST_F(IntegrationTest_FifoProduction, FIFO_SecondOrderRemainsProducingAfterFirst) {
+    std::string sid = registerSample("DeltaW", 12.0, 0.90, 0);
+    std::string oid1 = orderCtrl->placeOrder(sid, "CorpD", 50);
+    std::string oid2 = orderCtrl->placeOrder(sid, "CorpE", 80);
+    orderCtrl->approveOrder(oid1);
+    orderCtrl->approveOrder(oid2);
+
+    auto job = prodQueueRepo->peek();
+    prodQueueRepo->remove(std::to_string(job->getQueueId()));
+    releaseCtrl->completeProduction(oid1, job->getActualProductionQty());
+
+    EXPECT_EQ(OrderStatus::CONFIRMED, orderRepo->findById(oid1)->getStatus());
+    EXPECT_EQ(OrderStatus::PRODUCING, orderRepo->findById(oid2)->getStatus());
+    EXPECT_FALSE(prodQueueRepo->isEmpty());  // oid2 아직 큐에 있음
+}
 ```
 
-### 시나리오 4 - 경계값 검증
+---
+
+## 수동 테스트 시나리오 (콘솔 직접 실행)
+
+단위/통합 테스트가 커버하지 못하는 **View 레이어 + 사용자 입력 흐름**을 수동으로 검증한다.
+
+### 수동 테스트 준비
+
+```batch
+"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvarsall.bat" x64
+cd C:\Reviewer\Day03-Project\SampleOrderSystem
+cmake -S . -B build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Debug
+cd build && nmake
+cd ..
+build\SampleOrderSystem.exe
 ```
-1. 수율 0, 1.1 입력 → 오류 메시지 확인
-2. 주문 수량 0 입력 → 오류 메시지 확인
-3. 존재하지 않는 시료 ID로 주문 → 오류 메시지 확인
-4. 빈 주문 목록에서 승인 시도 → 안내 메시지 확인
+
+---
+
+### MT-01: 입력 검증 — 범위 초과
+
+**목적**: 잘못된 메뉴 번호, 음수/0 수량, 범위 밖 수율 입력 시 재입력 요청 확인
+
 ```
+[메인 메뉴] 입력: 9
+→ "Invalid choice. Enter 0~6: " 메시지 출력 후 재입력 대기
+
+[메인 메뉴] 입력: -1
+→ "Invalid choice. Enter 0~6: " 메시지 출력
+
+[메인 메뉴] 입력: abc
+→ "Invalid choice. Enter 0~6: " 메시지 출력
+
+[메인 메뉴] 1 → 시료 관리 → 1 → 시료 등록
+  AvgTime: -5.0
+  → "Invalid value. Must be greater than 0." 재입력 대기
+
+  YieldRate: 1.5
+  → "Invalid value. Must be between 0 (exclusive) and 1 (inclusive)." 재입력 대기
+
+  Stock: -10
+  → "Invalid value. Must be 0 or greater." 재입력 대기
+
+[메인 메뉴] 2 → 시료 주문
+  Quantity: 0
+  → "Invalid value. Quantity must be greater than 0." 재입력 대기
+```
+
+**판정 기준**: 잘못된 입력마다 안내 문구가 출력되고, 프로그램이 종료되지 않으며, 재입력 후 정상 동작한다.
+
+---
+
+### MT-02: 화면 전환 — Enter 후 화면 클리어
+
+**목적**: 각 메뉴 동작 후 "Press Enter to continue..." 메시지 출력 및 Enter 입력 시 화면이 지워지는지 확인
+
+```
+[어떤 메뉴든 동작 완료 후]
+→ "Press Enter to continue..." 출력 확인
+→ Enter 입력
+→ 화면 지워지고 메인 메뉴 재출력 확인
+```
+
+---
+
+### MT-03: DB 영속성 — 재실행 후 데이터 유지
+
+**목적**: 프로그램 종료 후 재실행 시 이전 데이터가 그대로 유지되는지 검증
+
+```
+[1회 실행]
+  DUMMY 입력 → 시료 3개, 주문 6개 삽입
+  메인 메뉴 상단 Summary: Samples:3, Orders:6 확인
+  0 입력 → 종료
+
+[2회 실행]
+  메인 메뉴 상단 Summary: Samples:3, Orders:6 확인 (데이터 유지)
+```
+
+---
+
+### MT-04: RESET 후 데이터 초기화 확인
+
+```
+[메인 메뉴] DUMMY 입력 → 더미 데이터 삽입 확인
+[메인 메뉴] RESET 입력
+  → "[WARNING] This will permanently delete ALL..."
+  입력: CONFIRM
+  → "All data has been reset."
+[메인 메뉴] 4 → 모니터링
+  → 모든 카운트 0
+  → 시료 목록 없음
+```
+
+---
+
+### MT-05: DUMMY → 전체 흐름 연속 테스트
+
+**목적**: 더미 데이터를 삽입하고 전체 기능을 연속으로 검증하는 통합 실행 시나리오
+
+```
+[단계 1] RESET → CONFIRM (초기화)
+[단계 2] DUMMY (더미 데이터 삽입: 시료 3, 주문 6)
+[단계 3] 3 → 주문 승인/거절
+  RESERVED 목록 확인 (6건)
+  첫 번째 주문 → 승인 (재고 상황에 따라 CONFIRMED 또는 PRODUCING)
+[단계 4] 필요 시 5 → 생산 큐에서 생산 완료 처리
+[단계 5] 6 → 출고 처리
+[단계 6] 4 → 모니터링으로 최종 상태 확인
+```
+
+---
+
+## 통합 테스트 구현 계획
+
+| ID | 파일 | 테스트 수 | 우선순위 |
+|---|---|---|---|
+| IT-01 | test_it_stock_sufficient_flow.cpp | 3 | **높음** (이중차감 방지) |
+| IT-02 | test_it_production_flow.cpp | 4 | **높음** (생산 공식 + 전 흐름) |
+| IT-03 | test_it_reject_flow.cpp | 3 | 중간 |
+| IT-04 | test_it_multi_order_flow.cpp | 2 | 중간 |
+| IT-05 | test_it_fifo_production.cpp | 2 | 중간 |
+| **합계** | **5개 파일** | **14** | — |
+
+구현 후 총 테스트: **72 + 14 = 86개**
 
 ---
 
 ## 테스트 실행 방법
 
-```bash
-# 전체 테스트 빌드
-g++ -std=c++17 -o run_tests tests/**/*.cpp src/**/*.cpp -lsqlite3 -lgtest -lgtest_main -lpthread
+### 전체 테스트 실행
 
-# 전체 테스트 실행
-./run_tests
+```batch
+"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvarsall.bat" x64
+cd C:\Reviewer\Day03-Project\SampleOrderSystem
+cmake -S . -B build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Debug
+cd build && nmake
+cd ..
+build\run_tests.exe
+```
 
-# 특정 테스트만 실행
-./run_tests --gtest_filter="OrderControllerTest.*"
+### 특정 테스트만 실행
 
-# 상세 출력
-./run_tests --gtest_output=verbose
+```batch
+rem 통합 테스트만
+build\run_tests.exe --gtest_filter="Integration*"
+
+rem 특정 시나리오만
+build\run_tests.exe --gtest_filter="IntegrationTest_ProductionFlow*"
+
+rem 상세 출력
+build\run_tests.exe --gtest_verbose
 ```
 
 ---
 
 ## 테스트 커버리지 목표
 
-| 레이어 | 목표 커버리지 | 비고 |
-|---|---|---|
-| Util | 90% 이상 | DBManager, IdGenerator, DateTimeUtil |
-| Model | 100% | 순수 비즈니스 로직, 단순 |
-| Repository | 85% 이상 | CRUD + 추가 조회 메서드 |
-| Controller | 90% 이상 | 핵심 로직, 분기 모두 커버 |
-| View | 수동 테스트 | 콘솔 I/O 특성상 제외 |
+| 레이어 | 단위 테스트 | 통합 테스트 | 수동 테스트 |
+|---|---|---|---|
+| Util | 23개 ✅ | — | MT-03, MT-04 |
+| Model | 15개 ✅ | — | — |
+| Repository | 21개 ✅ | — | — |
+| Controller | 9개 ✅ | IT-01 ~ IT-05 | — |
+| View | 제외 | — | MT-01 ~ MT-05 |
+| **흐름 전체** | — | **14개 예정** | — |
+
+> Controller 테스트는 단일 레이어만 검증하므로 레이어 간 상호작용은
+> 통합 테스트(IT-01~05)와 수동 테스트(MT-01~05)가 담당한다.
