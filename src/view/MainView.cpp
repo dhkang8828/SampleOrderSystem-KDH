@@ -29,6 +29,7 @@ int MainView::getMenuChoice() {
             return 0;  // EOF -> exit gracefully
         }
         if (line == "RESET") return RESET_CMD;
+        if (line == "DUMMY") return DUMMY_CMD;
         try {
             int val = std::stoi(line);
             if (val >= 0 && val <= 6) return val;

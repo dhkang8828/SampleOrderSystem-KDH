@@ -4,6 +4,7 @@
 
 #include "util/DBManager.h"
 #include "util/ConsoleUtil.h"
+#include "util/DummyDataGenerator.h"
 #include "repository/SampleRepository.h"
 #include "repository/OrderRepository.h"
 #include "repository/ProductionQueueRepository.h"
@@ -179,6 +180,15 @@ int main() {
                     std::cout << "[Error] " << e.what() << "\n";
                 }
             }
+            ConsoleUtil::pressEnterToContinue();
+            break;
+        }
+
+        case MainView::DUMMY_CMD: { // hidden: type "DUMMY" at main menu
+            DummyDataGenerator::generate(sampleRepo, orderRepo);
+            std::cout << "Inserted " << DummyDataGenerator::SAMPLE_COUNT << " samples and "
+                      << DummyDataGenerator::SAMPLE_COUNT * DummyDataGenerator::ORDERS_PER_SAMPLE
+                      << " orders.\n";
             ConsoleUtil::pressEnterToContinue();
             break;
         }
