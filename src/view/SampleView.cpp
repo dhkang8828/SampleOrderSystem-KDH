@@ -1,4 +1,5 @@
 #include "view/SampleView.h"
+#include "util/ConsoleUtil.h"
 #include <iostream>
 #include <iomanip>
 #include <limits>
@@ -10,15 +11,7 @@ void SampleView::showMenu() {
 }
 
 int SampleView::getMenuChoice() {
-    int choice = -1;
-    std::cin >> choice;
-    if (std::cin.fail()) {
-        std::cin.clear();
-        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-        return -1;
-    }
-    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-    return choice;
+    return ConsoleUtil::readMenuChoice(0, 3);
 }
 
 void SampleView::showSampleList(const std::vector<Sample>& samples) {
@@ -54,10 +47,36 @@ void SampleView::showNotFound(const std::string& id) {
 
 SampleView::SampleInput SampleView::getSampleInput() {
     SampleInput in{};
-    std::cout << "Name: "; std::getline(std::cin, in.name);
-    std::cout << "Avg Production Time (min/ea): "; std::cin >> in.avgProdTime;
-    std::cout << "Yield Rate (0~1): "; std::cin >> in.yieldRate;
-    std::cout << "Initial Stock: "; std::cin >> in.stock;
+    std::cout << "Name: ";
+    std::getline(std::cin, in.name);
+
+    while (true) {
+        std::cout << "Avg Production Time (min/ea, >0): ";
+        std::cin >> in.avgProdTime;
+        if (!std::cin.fail() && in.avgProdTime > 0.0) break;
+        std::cin.clear();
+        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+        std::cout << "Invalid value. Must be greater than 0.\n";
+    }
+
+    while (true) {
+        std::cout << "Yield Rate (0~1): ";
+        std::cin >> in.yieldRate;
+        if (!std::cin.fail() && in.yieldRate > 0.0 && in.yieldRate <= 1.0) break;
+        std::cin.clear();
+        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+        std::cout << "Invalid value. Must be between 0 (exclusive) and 1 (inclusive).\n";
+    }
+
+    while (true) {
+        std::cout << "Initial Stock (>=0): ";
+        std::cin >> in.stock;
+        if (!std::cin.fail() && in.stock >= 0) break;
+        std::cin.clear();
+        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+        std::cout << "Invalid value. Must be 0 or greater.\n";
+    }
+
     std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
     return in;
 }

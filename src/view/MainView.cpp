@@ -1,6 +1,6 @@
 #include "view/MainView.h"
+#include "util/ConsoleUtil.h"
 #include <iostream>
-#include <limits>
 
 void MainView::showHeader() {
     std::cout << "\n========================================\n";
@@ -22,13 +22,5 @@ void MainView::showMenu() {
 }
 
 int MainView::getMenuChoice() {
-    int choice = -1;
-    std::cin >> choice;
-    if (std::cin.fail()) {
-        std::cin.clear();
-        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-        return -1;
-    }
-    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-    return choice;
+    return ConsoleUtil::readMenuChoice(0, 6);
 }

@@ -3,6 +3,7 @@
 #include <string>
 
 #include "util/DBManager.h"
+#include "util/ConsoleUtil.h"
 #include "repository/SampleRepository.h"
 #include "repository/OrderRepository.h"
 #include "repository/ProductionQueueRepository.h"
@@ -39,6 +40,8 @@ int main() {
 
     bool running = true;
     while (running) {
+        ConsoleUtil::clearScreen();
+
         auto samples = sampleCtrl.listSamples();
         int totalStock = 0;
         for (const auto& s : samples) totalStock += s.getStock();
@@ -59,6 +62,7 @@ int main() {
         case 1: { // Sample management
             bool inSample = true;
             while (inSample) {
+                ConsoleUtil::clearScreen();
                 sampleView.showMenu();
                 int sc = sampleView.getMenuChoice();
                 if (sc == 0) { inSample = false; break; }
@@ -74,6 +78,7 @@ int main() {
                     if (s) sampleView.showSample(*s);
                     else   sampleView.showNotFound(id);
                 }
+                ConsoleUtil::pressEnterToContinue();
             }
             break;
         }
@@ -88,6 +93,7 @@ int main() {
                     orderView.showError(e.what());
                 }
             }
+            ConsoleUtil::pressEnterToContinue();
             break;
         }
 
@@ -109,6 +115,7 @@ int main() {
                     std::cout << "[Error] " << e.what() << "\n";
                 }
             }
+            ConsoleUtil::pressEnterToContinue();
             break;
         }
 
@@ -120,13 +127,13 @@ int main() {
             counts["RELEASED"]  = orderRepo.countByStatus(OrderStatus::RELEASED);
             monitorView.showOrderCounts(counts);
 
-            // Compute pending qty per sample (RESERVED + PRODUCING demand)
             std::map<std::string, int> pendingQty;
             for (const auto& o : orderRepo.findByStatus(OrderStatus::RESERVED))
                 pendingQty[o.getSampleId()] += o.getQuantity();
             for (const auto& o : orderRepo.findByStatus(OrderStatus::PRODUCING))
                 pendingQty[o.getSampleId()] += o.getQuantity();
             monitorView.showStockStatus(sampleCtrl.listSamples(), pendingQty);
+            ConsoleUtil::pressEnterToContinue();
             break;
         }
 
@@ -156,6 +163,7 @@ int main() {
                     }
                 }
             }
+            ConsoleUtil::pressEnterToContinue();
             break;
         }
 
@@ -171,11 +179,11 @@ int main() {
                     std::cout << "[Error] " << e.what() << "\n";
                 }
             }
+            ConsoleUtil::pressEnterToContinue();
             break;
         }
 
         default:
-            std::cout << "Invalid choice.\n";
             break;
         }
     }

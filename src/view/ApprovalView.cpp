@@ -1,7 +1,7 @@
 #include "view/ApprovalView.h"
+#include "util/ConsoleUtil.h"
 #include <iostream>
 #include <iomanip>
-#include <limits>
 
 void ApprovalView::showReservedOrders(const std::vector<Order>& orders) {
     if (orders.empty()) {
@@ -31,10 +31,7 @@ std::string ApprovalView::selectOrderId() {
 
 int ApprovalView::getApprovalAction() {
     std::cout << "[1] Approve  [2] Reject  [0] Cancel\nSelect: ";
-    int choice = -1;
-    std::cin >> choice;
-    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-    return choice;
+    return ConsoleUtil::readMenuChoice(0, 2);
 }
 
 void ApprovalView::showResult(const std::string& orderId, const std::string& action) {
