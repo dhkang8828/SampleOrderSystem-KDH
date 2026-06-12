@@ -183,6 +183,21 @@ int main() {
             break;
         }
 
+        case MainView::RESET_CMD: { // hidden: type "RESET" at main menu
+            std::cout << "\n[WARNING] This will permanently delete ALL samples, orders, and production data.\n";
+            std::cout << "Type CONFIRM to proceed, anything else to cancel: ";
+            std::string confirm;
+            std::getline(std::cin, confirm);
+            if (confirm == "CONFIRM") {
+                DBManager::getInstance().resetAllData();
+                std::cout << "All data has been reset.\n";
+            } else {
+                std::cout << "Reset cancelled.\n";
+            }
+            ConsoleUtil::pressEnterToContinue();
+            break;
+        }
+
         default:
             break;
         }

@@ -1,6 +1,7 @@
 #include "view/MainView.h"
-#include "util/ConsoleUtil.h"
 #include <iostream>
+#include <string>
+#include <stdexcept>
 
 void MainView::showHeader() {
     std::cout << "\n========================================\n";
@@ -22,5 +23,16 @@ void MainView::showMenu() {
 }
 
 int MainView::getMenuChoice() {
-    return ConsoleUtil::readMenuChoice(0, 6);
+    std::string line;
+    while (true) {
+        if (!std::getline(std::cin, line)) {
+            return 0;  // EOF -> exit gracefully
+        }
+        if (line == "RESET") return RESET_CMD;
+        try {
+            int val = std::stoi(line);
+            if (val >= 0 && val <= 6) return val;
+        } catch (...) {}
+        std::cout << "Invalid choice. Enter 0~6 (or RESET): ";
+    }
 }

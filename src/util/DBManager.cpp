@@ -37,6 +37,20 @@ sqlite3* DBManager::getDB() const {
     return db_;
 }
 
+void DBManager::resetAllData() {
+    const char* sql =
+        "DELETE FROM production_queue;"
+        "DELETE FROM orders;"
+        "DELETE FROM samples;";
+    char* errMsg = nullptr;
+    int rc = sqlite3_exec(db_, sql, nullptr, nullptr, &errMsg);
+    if (rc != SQLITE_OK) {
+        std::string msg = errMsg ? errMsg : "unknown error";
+        sqlite3_free(errMsg);
+        throw std::runtime_error("Failed to reset data: " + msg);
+    }
+}
+
 void DBManager::createTables() {
     const char* sql =
         "CREATE TABLE IF NOT EXISTS samples ("
