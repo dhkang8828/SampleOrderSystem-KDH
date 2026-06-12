@@ -24,6 +24,15 @@ src/
 └── util/           # 공통 유틸리티
 tests/              # Google Test 단위 테스트
 data/               # SQLite DB 파일 저장 위치 (sample_order.db)
+docs/
+├── PRD.md          # 제품 요구사항 문서
+└── design/         # 클래스 설계 문서
+    ├── Overview.md     # 전체 클래스 구조 및 의존 관계
+    ├── Model.md        # Sample, Order, ProductionJob
+    ├── Repository.md   # IRepository<T> 및 SQLite 구현체
+    ├── Controller.md   # 비즈니스 로직 Controller
+    ├── View.md         # 콘솔 화면 View
+    └── Util.md         # DBManager, IdGenerator, DateTimeUtil
 ```
 
 ## 도메인 모델
