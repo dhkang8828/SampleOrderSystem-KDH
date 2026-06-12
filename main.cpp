@@ -119,7 +119,14 @@ int main() {
             counts["PRODUCING"] = orderRepo.countByStatus(OrderStatus::PRODUCING);
             counts["RELEASED"]  = orderRepo.countByStatus(OrderStatus::RELEASED);
             monitorView.showOrderCounts(counts);
-            monitorView.showStockStatus(sampleCtrl.listSamples());
+
+            // Compute pending qty per sample (RESERVED + PRODUCING demand)
+            std::map<std::string, int> pendingQty;
+            for (const auto& o : orderRepo.findByStatus(OrderStatus::RESERVED))
+                pendingQty[o.getSampleId()] += o.getQuantity();
+            for (const auto& o : orderRepo.findByStatus(OrderStatus::PRODUCING))
+                pendingQty[o.getSampleId()] += o.getQuantity();
+            monitorView.showStockStatus(sampleCtrl.listSamples(), pendingQty);
             break;
         }
 

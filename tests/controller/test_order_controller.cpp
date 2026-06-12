@@ -51,9 +51,9 @@ TEST_F(OrderControllerTest, ApproveOrder_StockSufficient_BecomesConfirmed) {
     auto order = orderRepo->findById(orderId);
     ASSERT_TRUE(order.has_value());
     EXPECT_EQ(OrderStatus::CONFIRMED, order->getStatus());
-    // stock should decrease
+    // stock is deducted at release time, not at approval
     auto sample = sampleRepo->findById("S-001");
-    EXPECT_EQ(50, sample->getStock());
+    EXPECT_EQ(100, sample->getStock());
 }
 
 TEST_F(OrderControllerTest, ApproveOrder_StockInsufficient_BecomesProducing) {

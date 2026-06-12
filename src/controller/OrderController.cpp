@@ -37,7 +37,6 @@ void OrderController::approveOrder(const std::string& orderId) {
 
     if (sample.hasEnoughStock(order.getQuantity())) {
         orderRepo_->updateStatus(orderId, OrderStatus::CONFIRMED);
-        sampleRepo_->updateStock(sample.getSampleId(), sample.getStock() - order.getQuantity());
     } else {
         int shortfall = sample.getShortfall(order.getQuantity());
         int actualQty = ProductionController::calcActualProductionQty(shortfall, sample.getYieldRate());
