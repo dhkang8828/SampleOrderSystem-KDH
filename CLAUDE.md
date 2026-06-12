@@ -129,12 +129,20 @@ RESERVED
 
 ## 빌드 및 실행
 
-```bash
-# 컴파일 (sqlite3 링크 포함)
-g++ -std=c++17 -o SampleOrderSystem src/**/*.cpp -lsqlite3
+### 빌드 환경 (VS 2026 + NMake)
+
+```batch
+# x64 환경 초기화 (최초 1회)
+"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvarsall.bat" x64
+
+# CMake 설정 (최초 1회)
+cmake -S . -B build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Debug
+
+# 빌드
+cd build && nmake
 
 # 실행
-./SampleOrderSystem
+build\SampleOrderSystem.exe
 ```
 
 ## TDD 개발 원칙
@@ -152,12 +160,10 @@ g++ -std=c++17 -o SampleOrderSystem src/**/*.cpp -lsqlite3
 
 ### 테스트 빌드 및 실행
 
-```bash
-# Google Test 포함 컴파일
-g++ -std=c++17 -o run_tests tests/**/*.cpp src/**/*.cpp -lsqlite3 -lgtest -lgtest_main -lpthread
-
-# 테스트 실행
-./run_tests
+```batch
+# 빌드 후 테스트 실행
+cd build && nmake run_tests
+build\run_tests.exe
 ```
 
 ### 테스트 파일 네이밍
