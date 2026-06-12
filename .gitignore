@@ -1,0 +1,26 @@
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.sdf
+*.opensdf
+Debug/
+Release/
+x64/
+x86/
+*.vcxproj.user
+
+# Build output
+*.exe
+*.obj
+*.o
+*.out
+run_tests
+SampleOrderSystem
+
+# Database
+data/*.db
+
+# OS
+Thumbs.db
+.DS_Store
